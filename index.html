@@ -539,20 +539,32 @@ async function loadSettings() {
 }
 
 async function saveSetting(key, value) {
-  // value must be a string; objects should be JSON.stringify'd before calling
-  const payload = { key, value };
+  // Supabase upsert — works on ALL devices because it goes to the database
   try {
-    // upsert: insert or update if key already exists
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=eq.${key}`, {
-      method: 'GET', headers: sb.headers
+    const headers = {
+      'apikey':        SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type':  'application/json',
+      'Prefer':        'resolution=merge-duplicates,return=representation'
+    };
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/settings`, {
+      method:  'POST',
+      headers: headers,
+      body:    JSON.stringify({ key, value })
     });
-    const existing = await r.json();
-    if (existing.length) {
-      await sb.patch('settings', existing[0].id, { value });
-    } else {
-      await sb.post('settings', payload);
+    const text = await r.text();
+    if (!r.ok) {
+      console.error('saveSetting HTTP error', r.status, text);
+      toast('❌ Save failed: ' + r.status + ' — see console','err');
+      return undefined;
     }
-  } catch(e) { console.warn('saveSetting failed:', e); }
+    console.log('saveSetting OK:', key, text);
+    return JSON.parse(text || '[]');
+  } catch(e) {
+    console.error('saveSetting exception:', e);
+    toast('❌ Save failed — no internet?','err');
+    return undefined;
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -777,11 +789,17 @@ async function submitOrder() {
 // ─────────────────────────────────────────────
 // Admin Auth
 // ─────────────────────────────────────────────
-function doLogin() {
-  const u = document.getElementById('loginUser').value;
-  const p = document.getElementById('loginPass').value;
-  if (u===creds.u && p===creds.p) { loggedIn=true; showPage('admin'); }
-  else toast('Invalid credentials','err');
+async function doLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value.trim();
+  // Always reload creds fresh from Supabase before checking
+  await loadSettings();
+  if (u === creds.u && p === creds.p) {
+    loggedIn = true;
+    showPage('admin');
+  } else {
+    toast('Invalid credentials', 'err');
+  }
 }
 function doLogout() { loggedIn=false; showPage('store'); }
 
@@ -931,28 +949,43 @@ async function deleteProduct(id) {
 // Settings
 // ─────────────────────────────────────────────
 async function saveEmailCfg() {
-  emailCfg = {
+  const newCfg = {
     svc:   document.getElementById('ejSvc').value.trim(),
     tpl:   document.getElementById('ejTpl').value.trim(),
     key:   document.getElementById('ejKey').value.trim(),
     email: document.getElementById('ejEmail').value.trim()
   };
-  await saveSetting('emailCfg', JSON.stringify(emailCfg));
-  const ok = !!(emailCfg.svc && emailCfg.tpl && emailCfg.key && emailCfg.email);
-  document.getElementById('emailStatus').textContent = ok ? '✓ Configured' : 'Not configured';
-  document.getElementById('emailStatus').className   = ok ? 'badge ok' : 'badge no';
-  toast('Email config saved ✓ — works on all devices now','ok');
+  if (!newCfg.svc||!newCfg.tpl||!newCfg.key||!newCfg.email) {
+    toast('Fill all 4 email fields','err'); return;
+  }
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const result = await saveSetting('emailCfg', JSON.stringify(newCfg));
+  btn.disabled = false; btn.textContent = 'Save Email Config';
+  if (result !== undefined) {
+    emailCfg = newCfg;
+    const ok = true;
+    document.getElementById('emailStatus').textContent = '✓ Configured';
+    document.getElementById('emailStatus').className   = 'badge ok';
+    toast('✓ Email config saved — works on ALL devices now','ok');
+  }
 }
 
 async function saveCreds() {
   const u = document.getElementById('newUser').value.trim();
   const p = document.getElementById('newPass').value.trim();
   if (!u||!p) { toast('Fill both fields','err'); return; }
-  creds = {u, p};
-  await saveSetting('creds', JSON.stringify(creds));
-  document.getElementById('newUser').value='';
-  document.getElementById('newPass').value='';
-  toast('Credentials updated ✓ — works on all devices now','ok');
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const newCreds = {u, p};
+  const result = await saveSetting('creds', JSON.stringify(newCreds));
+  btn.disabled = false; btn.textContent = 'Update Credentials';
+  if (result !== undefined) {
+    creds = newCreds; // update in memory too
+    document.getElementById('newUser').value='';
+    document.getElementById('newPass').value='';
+    toast('✓ Password updated — works on ALL devices now','ok');
+  }
 }
 
 async function saveStoreName() {
