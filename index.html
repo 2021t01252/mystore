@@ -684,6 +684,7 @@ function renderCart() {
     cf.innerHTML = '';
     return;
   }
+  const COD_FEE = 400;
   let total = 0, rows = '';
   cart.forEach(item => {
     const p = products.find(x => x.id === item.id);
@@ -710,7 +711,8 @@ function renderCart() {
   cf.innerHTML = `
     <div class="cart-summary">
       <div class="summary-row"><span>Subtotal</span><span>LKR ${Number(total).toLocaleString()}</span></div>
-      <div class="summary-total"><span>Total</span><span>LKR ${Number(total).toLocaleString()}</span></div>
+      <div class="summary-row"><span>Cash on Delivery Fee</span><span>LKR 400</span></div>
+      <div class="summary-total"><span>Total (incl. COD)</span><span>LKR ${Number(total + 400).toLocaleString()}</span></div>
     </div>
     <div class="checkout-box">
       <h3>📋 Delivery Details</h3>
@@ -760,12 +762,14 @@ async function submitOrder() {
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = 'Submitting…';
 
+  const COD_FEE = 400;
   let total = 0;
   const orderItems = cart.map(item => {
     const p = products.find(x=>x.id===item.id);
     total += p.price * item.qty;
     return { product_id: p.id, name: p.name, qty: item.qty, unit_price: p.price };
   });
+  const grandTotal = total + COD_FEE;
 
   const orderId = 'ORD-' + Date.now();
   const orderData = {
@@ -777,7 +781,7 @@ async function submitOrder() {
     phone2: p2,
     notes: note,
     items: orderItems,
-    total_amount: total
+    total_amount: grandTotal
   };
 
   // Save to Supabase
@@ -798,8 +802,8 @@ async function submitOrder() {
         buyer_address: addr,
         buyer_phone1:  p1,
         buyer_phone2:  p2,
-        order_items:   itemLines,
-        order_total:   `LKR ${Number(total).toLocaleString()}`,
+        order_items:   itemLines + `\n• Cash on Delivery Fee = LKR 400`,
+        order_total:   `LKR ${Number(grandTotal).toLocaleString()}`,
         order_notes:   note || 'None',
         order_date:    new Date().toLocaleString()
       });
